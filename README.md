@@ -78,12 +78,129 @@ pip install numpy==1.23.5 --no-build-isolation
 python -c "import gym; import minerl; import torch; print('Installation successful!')"
 ```
 
+## Docker Installation (Alternative)
+
+Docker provides an isolated environment with all dependencies pre-configured, including Python 3.11, OpenJDK 8, and xvfb-run.
+
+### Prerequisites
+
+- Docker installed on your system
+- For GPU support: NVIDIA GPU with drivers and NVIDIA Container Toolkit
+
+### Step 1: Install NVIDIA Container Toolkit (For GPU Support)
+
+If you want to use GPU acceleration, install the NVIDIA Container Toolkit:
+
+```bash
+# On Ubuntu/Debian
+distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
+curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
+curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | sudo tee /etc/apt/sources.list.d/nvidia-docker.list
+
+sudo apt-get update
+sudo apt-get install -y nvidia-container-toolkit
+sudo systemctl restart docker
+```
+
+**Verify GPU access:**
+```bash
+sudo docker run --rm --gpus all nvidia/cuda:11.8.0-base-ubuntu22.04 nvidia-smi
+```
+
+### Step 2: Build Docker Image
+
+```bash
+# Build the image
+sudo docker build -t minecraft-ai .
+```
+
+This will create an image (~12GB) with all dependencies including:
+- Python 3.11
+- OpenJDK 8
+- xvfb-run
+- CUDA 11.8 runtime (for GPU support)
+- All Python packages from requirements.txt
+
+### Step 3: Run Container
+
+#### CPU Mode (No GPU)
+
+```bash
+# Interactive shell
+sudo docker run -it --rm \
+  -v $(pwd)/videos:/app/videos \
+  -v $(pwd)/runs:/app/runs \
+  -v $(pwd)/logs:/app/logs \
+  minecraft-ai
+
+# Run training script
+sudo docker run -it --rm \
+  -v $(pwd)/videos:/app/videos \
+  -v $(pwd)/runs:/app/runs \
+  -v $(pwd)/logs:/app/logs \
+  minecraft-ai \
+  xvfb-run -a python train.py --total-timesteps 1000000 --cuda False
+```
+
+#### GPU Mode (With CUDA)
+
+```bash
+# Interactive shell with GPU
+sudo docker run -it --rm --gpus all \
+  -v $(pwd)/videos:/app/videos \
+  -v $(pwd)/runs:/app/runs \
+  -v $(pwd)/logs:/app/logs \
+  minecraft-ai
+
+# Run training with GPU
+sudo docker run -it --rm --gpus all \
+  -v $(pwd)/videos:/app/videos \
+  -v $(pwd)/runs:/app/runs \
+  -v $(pwd)/logs:/app/logs \
+  minecraft-ai \
+  xvfb-run -a python train.py --total-timesteps 1000000 --cuda True
+
+# Verify CUDA in container
+sudo docker run -it --rm --gpus all minecraft-ai \
+  python3 -c "import torch; print('CUDA available:', torch.cuda.is_available())"
+```
+
+### Using Docker Compose
+
+Easier way to manage containers:
+
+```bash
+# Build and run (with GPU support enabled)
+sudo docker-compose up
+
+# Run in background
+sudo docker-compose up -d
+
+# View logs
+sudo docker-compose logs -f
+
+# Stop
+sudo docker-compose down
+```
+
+**Note**: The `docker-compose.yml` file is configured for GPU support. If you don't have a GPU, edit the file and remove or comment out the `deploy` section.
+
+### Docker Tips
+
+- **Volume Mounts**: The `-v` flags mount local directories so outputs persist outside the container
+- **GPU Access**: The `--gpus all` flag is required for CUDA support
+- **Permissions**: You may need `sudo` depending on your Docker setup
+- **Rebuild**: If you change dependencies, rebuild with `sudo docker build -t minecraft-ai .`
+
 ## Project Structure
 
 ```
 minecraft-AI/
 ├── README.md              # This file
+├── Dockerfile             # Docker image definition (Python 3.11, OpenJDK 8, xvfb, CUDA)
+├── docker-compose.yml     # Docker Compose configuration
 ├── environment.yml        # Conda environment file with all dependencies
+├── requirements.txt       # Python package requirements
 ├── getting_started.py     # Random action execution script
 ├── sequence_action.py     # Scripted action sequence with video recording
 ├── train.py              # PPO implementation for MineRL (hybrid action space)
@@ -308,6 +425,46 @@ pip install opencv-python
 - The warning is informational - training will still work
 - Use CPU (`--cuda False`) if you see CUDA OOM errors
 - Consider reducing batch size if memory is tight
+
+### Issue: CUDA not detected in Docker container
+
+**Problem**: `torch.cuda.is_available()` returns `False` in Docker container.
+
+**Solutions**:
+
+1. **Install NVIDIA Container Toolkit** (if not installed):
+   ```bash
+   # Follow Step 1 in Docker Installation section
+   sudo apt-get install -y nvidia-container-toolkit
+   sudo systemctl restart docker
+   ```
+
+2. **Use `--gpus all` flag** when running container:
+   ```bash
+   # Wrong (no GPU access)
+   sudo docker run -it minecraft-ai
+   
+   # Correct (with GPU access)
+   sudo docker run -it --gpus all minecraft-ai
+   ```
+
+3. **Verify GPU is accessible**:
+   ```bash
+   # Test on host
+   nvidia-smi
+   
+   # Test in container
+   sudo docker run --rm --gpus all nvidia/cuda:11.8.0-base-ubuntu22.04 nvidia-smi
+   ```
+
+4. **Check Docker Compose GPU configuration**:
+   - Ensure `docker-compose.yml` has the `deploy.resources.reservations.devices` section enabled
+   - For CPU-only, remove or comment out the GPU section
+
+5. **Rebuild image** if you changed Dockerfile:
+   ```bash
+   sudo docker build -t minecraft-ai .
+   ```
 
 ## PPO Implementation Details
 

@@ -14,13 +14,15 @@ services:
     environment:
       - DISPLAY=:99
       - PYTHONUNBUFFERED=1
-    # Uncomment to use GPU (requires nvidia-docker)
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    # Enable GPU support (requires nvidia-container-toolkit)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     command: xvfb-run -a python train.py --total-timesteps 1000000 --cuda False
 
