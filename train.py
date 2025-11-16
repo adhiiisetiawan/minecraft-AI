@@ -315,25 +315,43 @@ def extract_pov(obs):
 
 def cleanup_minerl_processes():
     """Clean up stale MineRL process watcher files and kill stuck processes"""
-    # Kill any stuck MineRL/Malmo processes
+    # Ensure /tmp exists and is writable
     try:
-        # Kill process watcher processes
-        subprocess.run(['pkill', '-f', 'minerl.utils.process_watcher'], 
-                      stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
-        # Kill launchClient processes
-        subprocess.run(['pkill', '-f', 'launchClient.sh'], 
-                      stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
-        # Kill any Java/Malmo processes
-        subprocess.run(['pkill', '-f', 'MCP-Reborn'], 
-                      stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+        os.makedirs('/tmp', exist_ok=True)
+        # Try to create a test file to check permissions
+        test_file = '/tmp/.minerl_test_write'
+        try:
+            with open(test_file, 'w') as f:
+                f.write('test')
+            os.remove(test_file)
+        except Exception:
+            print("Warning: /tmp may not be writable. This could cause PID file issues.")
     except Exception:
         pass
     
-    # Clean up PID files
-    pid_files = glob.glob('/tmp/minerl_watcher_*.pid') + \
-                glob.glob('./minerl_watcher_*.pid') + \
-                glob.glob('/tmp/*minerl*.pid') + \
-                glob.glob('/tmp/*malmo*.pid')
+    # Kill any stuck MineRL/Malmo processes (more aggressive)
+    for pattern in ['minerl.utils.process_watcher', 'launchClient.sh', 'MCP-Reborn', 'java.*malmo', 'java.*MCP']:
+        try:
+            subprocess.run(['pkill', '-9', '-f', pattern], 
+                          stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL, timeout=2)
+        except Exception:
+            pass
+    
+    # Wait for processes to die
+    time.sleep(1)
+    
+    # Clean up PID files (more thorough)
+    pid_patterns = [
+        '/tmp/minerl_watcher_*.pid',
+        './minerl_watcher_*.pid',
+        '/tmp/*minerl*.pid',
+        '/tmp/*malmo*.pid',
+        '/tmp/process_watcher_*.pid'
+    ]
+    
+    pid_files = []
+    for pattern in pid_patterns:
+        pid_files.extend(glob.glob(pattern))
     
     for pid_file in pid_files:
         try:
@@ -345,7 +363,7 @@ def cleanup_minerl_processes():
                     # Try to kill the process
                     try:
                         os.kill(pid, signal.SIGTERM)
-                        time.sleep(0.1)
+                        time.sleep(0.2)
                         os.kill(pid, signal.SIGKILL)  # Force kill if still running
                     except ProcessLookupError:
                         pass  # Process already dead
@@ -353,17 +371,23 @@ def cleanup_minerl_processes():
                         pass  # Can't kill, but we'll remove the file anyway
                 except (ValueError, OSError):
                     pass
-                # Remove the PID file
+                # Remove the PID file (force remove)
                 try:
+                    os.chmod(pid_file, 0o777)  # Make writable if needed
                     os.remove(pid_file)
                     print(f"Removed PID file: {pid_file}")
-                except Exception:
-                    pass
+                except Exception as e:
+                    # If we can't remove, try to truncate it
+                    try:
+                        with open(pid_file, 'w') as f:
+                            f.write('')
+                    except Exception:
+                        pass
         except Exception:
             pass
     
-    # Wait a bit for processes to fully terminate
-    time.sleep(0.5)
+    # Wait longer for processes to fully terminate
+    time.sleep(1.5)
 
 
 def signal_handler(sig, frame):
@@ -490,17 +514,48 @@ if __name__ == "__main__":
     start_time = time.time()
     
     # Clean up before first reset to avoid PID file conflicts
+    print("Cleaning up any stale MineRL processes...")
     cleanup_minerl_processes()
-    try:
-        next_obs_raw = env.reset()
-    except Exception as e:
-        if "PID file" in str(e) or "process_watcher" in str(e).lower() or "CalledProcessError" in str(type(e).__name__):
-            print(f"Initial reset failed due to PID file issue, retrying after cleanup...")
-            cleanup_minerl_processes()
-            time.sleep(2)
+    
+    # Set environment variables to help with process watcher
+    os.environ['MINERL_HEADLESS'] = '1'
+    if 'TMPDIR' not in os.environ:
+        os.environ['TMPDIR'] = '/tmp'
+    
+    max_retries = 3
+    for retry in range(max_retries):
+        try:
+            print(f"Attempting to reset environment (attempt {retry + 1}/{max_retries})...")
             next_obs_raw = env.reset()
-        else:
-            raise
+            print("Environment reset successful!")
+            break
+        except Exception as e:
+            error_str = str(e)
+            if ("PID file" in error_str or 
+                "process_watcher" in error_str.lower() or 
+                "CalledProcessError" in str(type(e).__name__)):
+                if retry < max_retries - 1:
+                    print(f"Reset failed due to PID file issue (attempt {retry + 1}), cleaning up and retrying...")
+                    cleanup_minerl_processes()
+                    time.sleep(3)  # Wait longer between retries
+                else:
+                    print("\n" + "="*60)
+                    print("ERROR: Failed to reset environment after multiple attempts.")
+                    print("This is a known MineRL process watcher issue.")
+                    print("="*60)
+                    print("\nPlease run the cleanup script manually:")
+                    cleanup_script = os.path.join(os.path.dirname(__file__), 'cleanup_minerl.sh')
+                    if os.path.exists(cleanup_script):
+                        print(f"  bash {cleanup_script}")
+                    else:
+                        print("  pkill -9 -f 'minerl.utils.process_watcher'")
+                        print("  pkill -9 -f 'launchClient.sh'")
+                        print("  rm -f /tmp/minerl_watcher_*.pid /tmp/*malmo*.pid")
+                    print("\nThen try running the training script again.")
+                    print("="*60)
+                    raise
+            else:
+                raise
     next_obs = torch.Tensor(extract_pov(next_obs_raw)).to(device).unsqueeze(0)
     next_done = torch.zeros(args.num_envs).to(device)
     num_updates = args.total_timesteps // args.batch_size
