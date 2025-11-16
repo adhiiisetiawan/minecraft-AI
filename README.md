@@ -418,6 +418,46 @@ conda create -n minecraft-ai python=3.11 -y
 pip install opencv-python
 ```
 
+### Issue: Process watcher PID file error
+
+**Problem**: `Unable to create/open PID file` or `subprocess.CalledProcessError` when creating MineRL environment.
+
+**Solutions**:
+
+1. **Clean up stale PID files** (automatic in train.py):
+   ```bash
+   # Manual cleanup if needed
+   rm -f /tmp/minerl_watcher_*.pid ./minerl_watcher_*.pid
+   ```
+
+2. **Kill any stuck MineRL processes**:
+   ```bash
+   pkill -f "minerl.utils.process_watcher"
+   pkill -f "launchClient.sh"
+   ```
+
+3. **Check file permissions**:
+   ```bash
+   # Ensure /tmp is writable
+   ls -ld /tmp
+   chmod 1777 /tmp  # If needed (requires sudo)
+   ```
+
+4. **Run with proper environment**:
+   ```bash
+   # Set TMPDIR if needed
+   export TMPDIR=/tmp
+   python train.py
+   ```
+
+5. **In Docker, ensure proper permissions**:
+   ```bash
+   # Run with proper user or use tmpfs
+   docker run -it --rm --tmpfs /tmp minecraft-ai
+   ```
+
+The code now automatically cleans up stale PID files on startup and retries if environment creation fails.
+
 ### Issue: CUDA out of memory (OOM) error
 
 **Problem**: MineRL has many button actions, creating a large discrete action space (2^n combinations). This can require 8-12GB+ GPU memory.

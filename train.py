@@ -311,6 +311,10 @@ def extract_pov(obs):
 
 
 if __name__ == "__main__":
+    # Register signal handlers for cleanup
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
     args = parse_args()
     run_name = f"{args.gym_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
     
@@ -345,8 +349,27 @@ if __name__ == "__main__":
     print(f"Using device: {device}")
     
     # Environment setup (MineRL doesn't support vectorized envs easily, so use single env)
+    # Clean up any stale PID files from previous runs
+    cleanup_minerl_processes()
+    
+    # Set environment variables to help with process watcher
+    os.environ['MINERL_HEADLESS'] = '1'
+    # Set temp directory for PID files if needed
+    if 'TMPDIR' not in os.environ:
+        os.environ['TMPDIR'] = '/tmp'
+    
     print("Creating MineRL environment...")
-    env = gym.make(args.gym_id)
+    try:
+        env = gym.make(args.gym_id)
+    except Exception as e:
+        # If environment creation fails, try cleaning up and retrying
+        if "PID file" in str(e) or "process_watcher" in str(e).lower():
+            print("Retrying after cleanup...")
+            cleanup_minerl_processes()
+            time.sleep(2)  # Wait a bit for processes to clean up
+            env = gym.make(args.gym_id)
+        else:
+            raise
     env = gym.wrappers.RecordEpisodeStatistics(env)
     if args.capture_video:
         # Create videos directory if it doesn't exist
