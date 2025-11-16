@@ -1,4 +1,4 @@
-# Minecraft AI - MineRL Environment
+# Minecraft AI
 
 A project for experimenting with reinforcement learning in Minecraft using the MineRL environment. This project includes scripts for running random actions and executing predefined action sequences with video recording capabilities.
 
