@@ -210,8 +210,15 @@ class Agent(nn.Module):
         features = self.cnn_encoder(x)
         return self.critic(features)
     
-    def get_action_and_value(self, x, action_discrete=None, action_camera=None):
-        """Get action and value from observation"""
+    def get_action_and_value(self, x, action_discrete=None, action_camera=None, compute_entropy=True):
+        """Get action and value from observation
+        
+        Args:
+            x: Observation tensor
+            action_discrete: Pre-sampled discrete action (optional)
+            action_camera: Pre-sampled camera action (optional)
+            compute_entropy: Whether to compute entropy (skip for large action spaces to save memory)
+        """
         features = self.cnn_encoder(x)
         
         # Discrete actions (buttons)
@@ -220,7 +227,29 @@ class Agent(nn.Module):
         if action_discrete is None:
             action_discrete = discrete_dist.sample()
         discrete_logprob = discrete_dist.log_prob(action_discrete)
-        discrete_entropy = discrete_dist.entropy()
+        
+        # Compute entropy only if requested (skip for large action spaces to save memory)
+        # For very large action spaces (>100k), computing full entropy requires softmax over all actions
+        # which can cause OOM even on large GPUs. Use approximation instead.
+        if compute_entropy and self.num_button_actions < 100000:
+            try:
+                discrete_entropy = discrete_dist.entropy()
+            except RuntimeError as e:
+                if "out of memory" in str(e).lower():
+                    # Fallback: use constant entropy estimate
+                    compute_entropy = False
+                else:
+                    raise
+        
+        if not compute_entropy or self.num_button_actions >= 100000:
+            # For large action spaces, use a constant entropy estimate to avoid OOM
+            # This is a rough approximation: log(num_actions) scaled down
+            # The entropy bonus encourages exploration, but for huge action spaces
+            # we use a reasonable constant to avoid memory issues
+            estimated_entropy = torch.tensor(np.log(max(2, min(self.num_button_actions, 10000))) * 0.3, 
+                                           device=discrete_logprob.device, 
+                                           dtype=discrete_logprob.dtype)
+            discrete_entropy = estimated_entropy.expand_as(discrete_logprob)
         
         # Continuous actions (camera)
         camera_mean = self.actor_camera_mean(features)
@@ -342,6 +371,7 @@ if __name__ == "__main__":
     if agent.num_button_actions > 100000:
         print(f"\nWARNING: Very large action space ({agent.num_button_actions:,} actions)!")
         print("This may cause CUDA out of memory errors.")
+        print("Entropy computation will use approximation to save memory.")
         print("Consider:")
         print("  1. Using CPU: --cuda False")
         print("  2. Reducing batch size: --num-steps 128 --num-minibatches 8")
@@ -393,7 +423,12 @@ if __name__ == "__main__":
             
             # Action logic
             with torch.no_grad():
-                (action_discrete, action_camera), (logprob_discrete, logprob_camera), _, value = agent.get_action_and_value(next_obs)
+                # During rollout, we don't need entropy (only need it for loss calculation during updates)
+                # Skip entropy computation to save memory for large action spaces
+                (action_discrete, action_camera), (logprob_discrete, logprob_camera), _, value = agent.get_action_and_value(
+                    next_obs, 
+                    compute_entropy=False  # Skip entropy during rollout to save memory
+                )
                 values[step] = value.flatten()
             
             actions_discrete[step] = action_discrete
@@ -482,10 +517,14 @@ if __name__ == "__main__":
                 end = start + args.minibatch_size
                 mb_inds = b_inds[start:end]
                 
+                # Skip entropy computation during updates for large action spaces (saves memory)
+                # We'll use a simple approximation instead
+                compute_entropy = agent.num_button_actions < 100000  # Only compute if action space is reasonable
                 (_, _), (newlogprob_discrete, newlogprob_camera), entropy, newvalue = agent.get_action_and_value(
                     b_obs[mb_inds], 
                     b_actions_discrete[mb_inds],
-                    b_actions_camera[mb_inds]
+                    b_actions_camera[mb_inds],
+                    compute_entropy=compute_entropy
                 )
                 
                 # Combined log probability
