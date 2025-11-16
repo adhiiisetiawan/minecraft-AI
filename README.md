@@ -204,6 +204,9 @@ minecraft-AI/
 ├── getting_started.py     # Random action execution script
 ├── sequence_action.py     # Scripted action sequence with video recording
 ├── train.py              # PPO implementation for MineRL (hybrid action space)
+├── inference.py           # Inference script for running trained models
+├── checkpoints/           # Saved model checkpoints (created during training)
+├── inference_outputs/     # Inference videos and outputs (created during inference)
 ├── videos/                # Output directory for recorded videos
 ├── runs/                  # TensorBoard logs
 └── logs/                  # Minecraft and environment logs
@@ -290,6 +293,46 @@ python train.py --total-timesteps 1000000 --track --wandb-project-name my-projec
 - **MineRL-Adapted Hyperparameters**: Optimized for MineRL environment characteristics
 - **Memory Diagnostics**: Automatically detects and warns about large action spaces
 - **Video Recording**: Built-in video capture support for monitoring training progress
+- **Model Saving**: Automatically saves checkpoints and best models during training
+
+**Model Saving:**
+- **Best Model**: Saved automatically when a new best reward is achieved
+- **Periodic Checkpoints**: Saved every N updates (default: every 100 updates)
+- **Final Model**: Saved at the end of training
+- All models saved to `checkpoints/` directory with metadata
+
+### 4. Model Inference (`inference.py`)
+
+Run inference with a trained model:
+
+```bash
+# Basic inference (with video recording)
+python inference.py --checkpoint checkpoints/best_model_*.pth
+
+# Run multiple episodes
+python inference.py --checkpoint checkpoints/best_model_*.pth --num-episodes 5
+
+# With rendering (see the agent play)
+python inference.py --checkpoint checkpoints/best_model_*.pth --render
+
+# Headless mode (no window)
+xvfb-run -a python inference.py --checkpoint checkpoints/best_model_*.pth
+
+# Custom output directory
+python inference.py --checkpoint checkpoints/best_model_*.pth --output-dir my_inference_results
+```
+
+**What it does:**
+- Loads a trained model from checkpoint
+- Runs the agent in the environment
+- Records video automatically (saved to `inference_outputs/`)
+- Shows agent performance without training
+- Supports multiple episodes
+
+**Checkpoint Files:**
+- `best_model_*.pth`: Best performing model (highest reward)
+- `checkpoint_N_*.pth`: Periodic checkpoints during training
+- `final_model_*.pth`: Final model at end of training
 
 ## Environment Details
 
@@ -599,6 +642,94 @@ MineRL's action space combines:
 - Videos automatically saved during training
 - Useful for monitoring agent behavior and progress
 - Saved to `videos/` directory with run name
+
+## Model Saving and Loading
+
+### Saving Models During Training
+
+Models are automatically saved during training:
+
+1. **Best Model**: Saved whenever a new best episode return is achieved
+   - File: `checkpoints/best_model_{run_name}.pth`
+   - Contains: Model weights, optimizer state, training metadata
+
+2. **Periodic Checkpoints**: Saved every N updates (default: 100)
+   - File: `checkpoints/checkpoint_{update}_{run_name}.pth`
+   - Useful for resuming training or comparing different training stages
+
+3. **Final Model**: Saved at the end of training
+   - File: `checkpoints/final_model_{run_name}.pth`
+   - Final state after all training steps
+
+**Checkpoint Contents:**
+- `agent_state_dict`: Policy and value network weights
+- `optimizer_state_dict`: Optimizer state (for resuming training)
+- `global_step`: Number of training steps
+- `episode_return`: Best reward achieved (for best model)
+- `args`: Training hyperparameters
+- `button_keys`, `num_button_actions`, `camera_dim`: Action space info
+
+**Training Options:**
+```bash
+# Disable model saving
+python train.py --save-model False
+
+# Change save interval (save every 50 updates)
+python train.py --save-interval 50
+
+# Custom checkpoint directory
+python train.py --checkpoint-dir my_checkpoints
+```
+
+### Loading Models for Inference
+
+**Using the Inference Script:**
+
+```bash
+# Find your best model
+ls checkpoints/best_model_*.pth
+
+# Run inference with video recording
+python inference.py --checkpoint checkpoints/best_model_MineRLBasaltFindCave-v0__train__1__1234567890.pth
+
+# Run multiple episodes
+python inference.py --checkpoint checkpoints/best_model_*.pth --num-episodes 5
+
+# With rendering (see the agent play)
+python inference.py --checkpoint checkpoints/best_model_*.pth --render
+
+# Headless mode
+xvfb-run -a python inference.py --checkpoint checkpoints/best_model_*.pth
+
+# Custom output directory
+python inference.py --checkpoint checkpoints/best_model_*.pth --output-dir my_results
+```
+
+**Programmatic Loading:**
+
+```python
+import torch
+import gym
+from train import Agent, extract_pov
+
+# Load checkpoint
+checkpoint = torch.load('checkpoints/best_model_*.pth', map_location='cpu')
+
+# Create environment and agent
+env = gym.make('MineRLBasaltFindCave-v0')
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+agent = Agent(env, device)
+agent.load_state_dict(checkpoint['agent_state_dict'])
+agent.eval()  # Set to evaluation mode
+
+# Run inference
+obs = env.reset()
+with torch.no_grad():
+    obs_tensor = torch.Tensor(extract_pov(obs)).to(device).unsqueeze(0)
+    (action_discrete, action_camera), _, _, _ = agent.get_action_and_value(obs_tensor)
+    action_dict = agent.action_to_dict(action_discrete, action_camera)
+    obs, reward, done, info = env.step(action_dict)
+```
 
 ## Next Steps
 

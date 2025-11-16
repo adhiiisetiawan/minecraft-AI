@@ -77,6 +77,12 @@ def parse_args():
         help="the maximum norm for the gradient clipping")
     parser.add_argument("--target-kl", type=float, default=None,
         help="the target KL divergence threshold")
+    parser.add_argument("--save-model", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+        help="if toggled, save model checkpoints")
+    parser.add_argument("--save-interval", type=int, default=100,
+        help="save model every N updates")
+    parser.add_argument("--checkpoint-dir", type=str, default="checkpoints",
+        help="directory to save model checkpoints")
     args = parser.parse_args()
     args.batch_size = int(args.num_envs * args.num_steps)
     args.minibatch_size = int(args.batch_size // args.num_minibatches)
@@ -344,6 +350,14 @@ if __name__ == "__main__":
     
     optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
     
+    # Create checkpoint directory
+    if args.save_model:
+        os.makedirs(args.checkpoint_dir, exist_ok=True)
+        print(f"Model checkpoints will be saved to {args.checkpoint_dir}/")
+    
+    # Track best reward for saving best model
+    best_reward = float('-inf')
+    
     # Storage setup
     obs_shape = env.observation_space['pov'].shape
     obs = torch.zeros((args.num_steps, args.num_envs) + obs_shape).to(device)
@@ -400,9 +414,26 @@ if __name__ == "__main__":
             next_done = torch.Tensor([done]).to(device)
             
             if "episode" in info.keys():
-                print(f"global_step={global_step}, episodic_return={info['episode']['r']}, episodic_length={info['episode']['l']}")
-                writer.add_scalar("charts/episodic_return", info["episode"]["r"], global_step)
+                episode_return = info["episode"]["r"]
+                print(f"global_step={global_step}, episodic_return={episode_return}, episodic_length={info['episode']['l']}")
+                writer.add_scalar("charts/episodic_return", episode_return, global_step)
                 writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
+                
+                # Save best model
+                if args.save_model and episode_return > best_reward:
+                    best_reward = episode_return
+                    best_model_path = os.path.join(args.checkpoint_dir, f"best_model_{run_name}.pth")
+                    torch.save({
+                        'agent_state_dict': agent.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict(),
+                        'global_step': global_step,
+                        'episode_return': episode_return,
+                        'args': vars(args),
+                        'button_keys': agent.button_keys,
+                        'num_button_actions': agent.num_button_actions,
+                        'camera_dim': agent.camera_dim,
+                    }, best_model_path)
+                    print(f"Saved best model with reward {episode_return:.2f} to {best_model_path}")
         
         # Bootstrap value if not done
         with torch.no_grad():
@@ -521,6 +552,35 @@ if __name__ == "__main__":
         sps = int(global_step / (time.time() - start_time))
         print(f"Update {update}/{num_updates}, SPS: {sps}")
         writer.add_scalar("charts/SPS", sps, global_step)
+        
+        # Save periodic checkpoint
+        if args.save_model and update % args.save_interval == 0:
+            checkpoint_path = os.path.join(args.checkpoint_dir, f"checkpoint_{update}_{run_name}.pth")
+            torch.save({
+                'agent_state_dict': agent.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'global_step': global_step,
+                'update': update,
+                'args': vars(args),
+                'button_keys': agent.button_keys,
+                'num_button_actions': agent.num_button_actions,
+                'camera_dim': agent.camera_dim,
+            }, checkpoint_path)
+            print(f"Saved checkpoint to {checkpoint_path}")
+    
+    # Save final model
+    if args.save_model:
+        final_model_path = os.path.join(args.checkpoint_dir, f"final_model_{run_name}.pth")
+        torch.save({
+            'agent_state_dict': agent.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'global_step': global_step,
+            'args': vars(args),
+            'button_keys': agent.button_keys,
+            'num_button_actions': agent.num_button_actions,
+            'camera_dim': agent.camera_dim,
+        }, final_model_path)
+        print(f"Saved final model to {final_model_path}")
     
     env.close()
     writer.close()
