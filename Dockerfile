@@ -1,9 +1,10 @@
 # Dockerfile for Minecraft AI - MineRL Environment
 # Supports both CPU and GPU (CUDA) modes
-ARG CUDA_VERSION=11.8
+# Option 1: Use Ubuntu base (works for both CPU and GPU with --gpus all)
+FROM ubuntu:22.04
 
-# Use CUDA base image for GPU support
-FROM nvidia/cuda:${CUDA_VERSION}-cudnn8-runtime-ubuntu22.04
+# Option 2: Uncomment below to use NVIDIA CUDA base image (requires GPU host)
+# FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
 
 # Set environment variables to avoid interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
