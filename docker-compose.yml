@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  minecraft-ai:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: minecraft-ai:latest
+    container_name: minecraft-ai
+    volumes:
+      - ./videos:/app/videos
+      - ./runs:/app/runs
+      - ./logs:/app/logs
+    environment:
+      - DISPLAY=:99
+      - PYTHONUNBUFFERED=1
+    # Uncomment to use GPU (requires nvidia-docker)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    command: xvfb-run -a python train.py --total-timesteps 1000000 --cuda False
+
