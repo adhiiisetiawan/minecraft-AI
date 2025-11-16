@@ -312,6 +312,38 @@ def extract_pov(obs):
     return np.ascontiguousarray(pov.copy())
 
 
+def cleanup_minerl_processes():
+    """Clean up stale MineRL process watcher files"""
+    # Clean up PID files
+    pid_files = glob.glob('/tmp/minerl_watcher_*.pid') + \
+                glob.glob('./minerl_watcher_*.pid') + \
+                glob.glob('/tmp/*minerl*.pid')
+    
+    for pid_file in pid_files:
+        try:
+            if os.path.exists(pid_file):
+                # Try to read PID and check if process exists
+                try:
+                    with open(pid_file, 'r') as f:
+                        pid = int(f.read().strip())
+                    # Check if process is still running
+                    os.kill(pid, 0)  # Doesn't kill, just checks if process exists
+                except (ValueError, ProcessLookupError, OSError):
+                    # Process doesn't exist, safe to remove
+                    os.remove(pid_file)
+                    print(f"Removed stale PID file: {pid_file}")
+        except Exception as e:
+            # Ignore errors during cleanup
+            pass
+
+
+def signal_handler(sig, frame):
+    """Handle cleanup on exit"""
+    print("\nCleaning up MineRL processes...")
+    cleanup_minerl_processes()
+    os._exit(0)
+
+
 if __name__ == "__main__":
     # Register signal handlers for cleanup
     signal.signal(signal.SIGINT, signal_handler)
