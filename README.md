@@ -1,5 +1,9 @@
 # Minecraft AI
 
+<div align="center">
+  <img src="assets/output.gif" alt="Output GIF" />
+</div>
+
 A project for experimenting with reinforcement learning in Minecraft using the MineRL environment. This project includes scripts for running random actions and executing predefined action sequences with video recording capabilities.
 
 **Status**: On going development
