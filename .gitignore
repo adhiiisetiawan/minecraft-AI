@@ -202,6 +202,7 @@ pyrightconfig.json
 # Ignore all local history of files
 .history
 .ionide
+runs/
 
 # End of https://www.toptal.com/developers/gitignore/api/visualstudiocode,python,jupyternotebooks
 *.mp4
