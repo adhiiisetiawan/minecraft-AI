@@ -1,8 +1,12 @@
 # Minecraft AI
 
 <div align="center">
-  <img src="assets/output.gif" alt="Output GIF" />
+  <img src="assets/output.gif" alt="Minecraft AI Training Demo" width="600" />
+  <br />
+  <em>🎮 AI Agent Learning to Navigate and Explore in Minecraft</em>
 </div>
+
+---
 
 A project for experimenting with reinforcement learning in Minecraft using the MineRL environment. This project includes scripts for running random actions and executing predefined action sequences with video recording capabilities.
 
