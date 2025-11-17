@@ -2,6 +2,8 @@
 
 A project for experimenting with reinforcement learning in Minecraft using the MineRL environment. This project includes scripts for running random actions and executing predefined action sequences with video recording capabilities.
 
+**Status**: On going development
+
 ## Overview
 
 This project uses [MineRL](https://github.com/minerllabs/minerl), a research platform for reinforcement learning in Minecraft. It includes:
